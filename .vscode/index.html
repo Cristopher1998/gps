@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Geolocalización del usuario</title>
+    <style>
+      body {
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial;
+        max-width: 900px;
+        margin: 24px auto;
+        padding: 18px;
+      }
+      h1 {
+        font-size: 1.4rem;
+        margin-bottom: 0.25rem;
+      }
+      .card {
+        border: 1px solid #e6e6e6;
+        border-radius: 8px;
+        padding: 12px;
+        margin-bottom: 12px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+      }
+      .row {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      button {
+        padding: 8px 12px;
+        border-radius: 8px;
+        border: 1px solid #cfcfcf;
+        background: #fff;
+        cursor: pointer;
+      }
+      button.primary {
+        background: #0366d6;
+        color: #fff;
+        border-color: #0366d6;
+      }
+      pre {
+        background: #f8f8f8;
+        padding: 10px;
+        border-radius: 6px;
+        overflow: auto;
+      }
+      #map {
+        width: 100%;
+        height: 360px;
+        border-radius: 8px;
+        border: 1px solid #ddd;
+      }
+      .small {
+        font-size: 0.9rem;
+        color: #555;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Web de Geolocalización</h1>
+    <p class="small">
+      Esta página obtiene la posición del usuario mediante la API de
+      Geolocalización del navegador. El navegador solicitará permiso al usuario.
+      <strong>Nota:</strong> la API requiere que la página se sirva por HTTPS o
+      en <code>localhost</code>.
+    </p>
+
+    <div class="card">
+      <div class="row">
+        <button id="getPosBtn" class="primary">Obtener posición ahora</button>
+        <button id="startWatchBtn">Iniciar seguimiento</button>
+        <button id="stopWatchBtn" disabled>Detener seguimiento</button>
+        <button id="copyBtn">Copiar coordenadas</button>
+        <button id="downloadBtn">Descargar .txt</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Datos</h2>
+      <div id="status" class="small">Estado: esperando acción.</div>
+      <pre id="output">
+Latitud: -
+Longitud: -
+Altitud: -
+Precisión (m): -
+Velocidad: -
+Dirección (bearing): -
+Timestamp: -
+</pre
+      >
+    </div>
+
+    <div class="card">
+      <h2>Mapa (OpenStreetMap)</h2>
+      <div id="mapContainer">
+        <iframe id="map" src="about:blank" title="Mapa OpenStreetMap"></iframe>
+      </div>
+    </div>
+
+    <script>
+      // Elementos
+      const getPosBtn = document.getElementById("getPosBtn");
+      const startWatchBtn = document.getElementById("startWatchBtn");
+      const stopWatchBtn = document.getElementById("stopWatchBtn");
+      const copyBtn = document.getElementById("copyBtn");
+      const downloadBtn = document.getElementById("downloadBtn");
+      const statusEl = document.getElementById("status");
+      const outputEl = document.getElementById("output");
+      const mapFrame = document.getElementById("map");
+
+      let watchId = null;
+      let lastPosition = null;
+
+      function supportsGeolocation() {
+        return "geolocation" in navigator;
+      }
+
+      function showStatus(text) {
+        statusEl.textContent = "Estado: " + text;
+      }
+
+      function renderPosition(pos) {
+        const coords = pos.coords;
+        lastPosition = pos;
+        const lines = [];
+        lines.push("Latitud: " + coords.latitude);
+        lines.push("Longitud: " + coords.longitude);
+        lines.push(
+          "Altitud: " + (coords.altitude !== null ? coords.altitude : "-")
+        );
+        lines.push("Precisión (m): " + coords.accuracy);
+        lines.push(
+          "Velocidad (m/s): " + (coords.speed !== null ? coords.speed : "-")
+        );
+        lines.push(
+          "Dirección (bearing): " +
+            (coords.heading !== null ? coords.heading : "-")
+        );
+        lines.push("Timestamp: " + new Date(pos.timestamp).toLocaleString());
+        outputEl.textContent = lines.join("\n");
+
+        // Actualiza mapa con marcador
+        updateMap(coords.latitude, coords.longitude);
+      }
+
+      function updateMap(lat, lon) {
+        // Construimos un bbox pequeño alrededor del punto para el embed
+        const delta = 0.005; // ~500m
+        const left = lon - delta;
+        const right = lon + delta;
+        const top = lat + delta;
+        const bottom = lat - delta;
+        const bbox = [left, bottom, right, top].join(",");
+        const marker = lat + "%2C" + lon;
+        const src = `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${marker}`;
+        mapFrame.src = src;
+      }
+
+      function handleError(err) {
+        console.error(err);
+        switch (err.code) {
+          case err.PERMISSION_DENIED:
+            showStatus(
+              "Permiso denegado. El usuario negó el acceso a la ubicación."
+            );
+            break;
+          case err.POSITION_UNAVAILABLE:
+            showStatus("Posición no disponible.");
+            break;
+          case err.TIMEOUT:
+            showStatus(
+              "Tiempo de espera agotado al intentar obtener la posición."
+            );
+            break;
+          default:
+            showStatus("Error desconocido.");
+        }
+      }
+
+      getPosBtn.addEventListener("click", () => {
+        if (!supportsGeolocation()) {
+          showStatus("Geolocalización no soportada por este navegador.");
+          return;
+        }
+        showStatus("Solicitando posición...");
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            showStatus("Posición obtenida.");
+            renderPosition(pos);
+          },
+          (err) => {
+            handleError(err);
+          },
+          {
+            enableHighAccuracy: true,
+            timeout: 10000,
+            maximumAge: 0,
+          }
+        );
+      });
+
+      startWatchBtn.addEventListener("click", () => {
+        if (!supportsGeolocation()) {
+          showStatus("Geolocalización no soportada por este navegador.");
+          return;
+        }
+        showStatus("Iniciando seguimiento...");
+        watchId = navigator.geolocation.watchPosition(
+          (pos) => {
+            showStatus(
+              "Actualizado: " + new Date(pos.timestamp).toLocaleTimeString()
+            );
+            renderPosition(pos);
+          },
+          (err) => {
+            handleError(err);
+          },
+          {
+            enableHighAccuracy: true,
+            maximumAge: 2000,
+            timeout: 15000,
+          }
+        );
+        startWatchBtn.disabled = true;
+        stopWatchBtn.disabled = false;
+      });
+
+      stopWatchBtn.addEventListener("click", () => {
+        if (watchId !== null) {
+          navigator.geolocation.clearWatch(watchId);
+          watchId = null;
+          showStatus("Seguimiento detenido.");
+        }
+        startWatchBtn.disabled = false;
+        stopWatchBtn.disabled = true;
+      });
+
+      copyBtn.addEventListener("click", async () => {
+        if (!lastPosition) {
+          showStatus("No hay coordenadas para copiar.");
+          return;
+        }
+        const c = lastPosition.coords;
+        const text = `Latitud: ${c.latitude}\nLongitud: ${c.longitude}\nPrecisión(m): ${c.accuracy}`;
+        try {
+          await navigator.clipboard.writeText(text);
+          showStatus("Coordenadas copiadas al portapapeles.");
+        } catch (e) {
+          showStatus("No se pudo copiar al portapapeles.");
+        }
+      });
+
+      downloadBtn.addEventListener("click", () => {
+        if (!lastPosition) {
+          showStatus("No hay coordenadas para descargar.");
+          return;
+        }
+        const c = lastPosition.coords;
+        const content = `Latitud: ${c.latitude}\nLongitud: ${
+          c.longitude
+        }\nAltitud: ${c.altitude}\nPrecisión(m): ${
+          c.accuracy
+        }\nTimestamp: ${new Date(lastPosition.timestamp).toISOString()}`;
+        const blob = new Blob([content], { type: "text/plain" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "coordenadas.txt";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+        showStatus("Archivo descargado.");
+      });
+
+      // Informe si el navegador no soporta geolocalización
+      if (!supportsGeolocation()) {
+        showStatus("Geolocalización no soportada por este navegador.");
+      }
+    </script>
+  </body>
+</html>
